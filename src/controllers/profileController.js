@@ -102,11 +102,11 @@ const updateProfile = async (req, res) => {
     return sendSuccess(res, result.rows[0], "Profile updated");
   } catch (err) {
     // Postgres unique-constraint violation (email already taken)
-    if (err.code === '23505' && err.constraint === 'users_email_key') {
+    if (err.code === "23505" && err.constraint === "users_email_key") {
       return sendError(res, "This email address is already in use by another account.", 409);
     }
     // Postgres unique-constraint violation (phone already taken)
-    if (err.code === '23505' && err.constraint === 'users_phone_number_key') {
+    if (err.code === "23505" && err.constraint === "users_phone_number_key") {
       return sendError(res, "This phone number is already in use by another account.", 409);
     }
     console.error("updateProfile error:", err);
@@ -200,11 +200,45 @@ const updateAvatar = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/user/permit/:id
+ * Uploads a business permit PDF and saves the path to business_profiles.permit_url.
+ * The DB has ONE permit_url column (not separate DTI/SEC/Mayor fields).
+ */
+const updatePermit = async (req, res) => {
+  try {
+    if (!req.file) {
+      return sendError(res, "No file uploaded", 400);
+    }
+    const { id } = req.params;
+    const permit_url = `/uploads/permits/${req.file.filename}`;
+
+    const result = await query(
+      `INSERT INTO business_profiles (user_id, company_name, permit_url)
+       VALUES ($1, '', $2)
+       ON CONFLICT (user_id) DO UPDATE SET
+         permit_url = EXCLUDED.permit_url,
+         updated_at = NOW()
+       RETURNING permit_url`,
+      [id, permit_url]
+    );
+
+    return sendSuccess(res, result.rows[0], "Permit uploaded");
+  } catch (err) {
+    console.error("updatePermit error:", err);
+    return sendError(res, "Failed to upload permit");
+  }
+};
+
+/**
+ * GET /api/user/documents
+ * Fetches resume and cover letter URLs for the logged-in user.
+ */
 const getDocuments = async (req, res) => {
   try {
     const result = await query(
       `SELECT resume_url, cover_letter_url FROM applicant_profiles WHERE user_id = $1`,
-      [req.user.id],
+      [req.user.id]
     );
     const row = result.rows[0] ?? {};
 
@@ -212,33 +246,34 @@ const getDocuments = async (req, res) => {
       if (!url) return null;
       const filename = url.split("/").pop();
       const parts = filename.split("-");
-
       const withoutPrefix = parts.slice(6).join("-");
       return withoutPrefix.replace(/_/g, " ");
     };
 
     return sendSuccess(res, {
-      resume_url: row.resume_url ?? null,
+      resume_url:       row.resume_url       ?? null,
       cover_letter_url: row.cover_letter_url ?? null,
-      resume_name: toDisplayName(row.resume_url),
-      cover_name: toDisplayName(row.cover_letter_url),
+      resume_name:      toDisplayName(row.resume_url),
+      cover_name:       toDisplayName(row.cover_letter_url),
     });
   } catch (err) {
+    console.error("getDocuments error:", err);
     return sendError(res, "Failed to fetch documents");
   }
 };
 
+/**
+ * POST /api/user/documents
+ * Uploads resume and/or cover letter PDFs.
+ */
 const updateDocuments = async (req, res) => {
   try {
     const { document_type } = req.body;
-    console.log(
-      "files received:",
-      JSON.stringify(Object.keys(req.files || {})),
-    );
+    console.log("files received:", JSON.stringify(Object.keys(req.files || {})));
 
     if (document_type === "resume" && req.files?.resume) {
-      const resume_url = `/uploads/documents/${req.files.resume[0].filename}`;
-      const original_name = req.files.resume[0].originalname; // ← save original name
+      const resume_url    = `/uploads/documents/${req.files.resume[0].filename}`;
+      const original_name = req.files.resume[0].originalname;
 
       await query(
         `INSERT INTO applicant_profiles (id, user_id, resume_url, updated_at)
@@ -246,13 +281,13 @@ const updateDocuments = async (req, res) => {
          ON CONFLICT (user_id)
          DO UPDATE SET resume_url = EXCLUDED.resume_url,
                        updated_at = NOW()`,
-        [req.user.id, resume_url],
+        [req.user.id, resume_url]
       );
       return sendSuccess(res, { resume_url, original_name }, "Resume uploaded");
     }
 
     if (document_type === "cover" && req.files?.cover_letter) {
-      const cover_url = `/uploads/documents/${req.files.cover_letter[0].filename}`;
+      const cover_url     = `/uploads/documents/${req.files.cover_letter[0].filename}`;
       const original_name = req.files.cover_letter[0].originalname;
 
       await query(
@@ -261,13 +296,9 @@ const updateDocuments = async (req, res) => {
          ON CONFLICT (user_id)
          DO UPDATE SET cover_letter_url = EXCLUDED.cover_letter_url,
                        updated_at = NOW()`,
-        [req.user.id, cover_url],
+        [req.user.id, cover_url]
       );
-      return sendSuccess(
-        res,
-        { cover_url, original_name },
-        "Cover letter uploaded",
-      );
+      return sendSuccess(res, { cover_url, original_name }, "Cover letter uploaded");
     }
 
     return sendError(res, "No file received", 400);
@@ -280,7 +311,9 @@ const updateDocuments = async (req, res) => {
 module.exports = {
   getProfile,
   updateProfile,
+  updateBusiness,
   updateAvatar,
+  updatePermit,
   updateDocuments,
   getDocuments,
 };
