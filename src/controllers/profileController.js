@@ -2,13 +2,21 @@ const { query } = require("../config/db");
 const { sendSuccess, sendError } = require("../middleware/errorHandler");
 
 /**
+ * Helper to extract a display name from a stored file URL.
+ * It handles the logic for stripping prefixes/UUIDs from filenames.
+ */
+const toDisplayName = (url) => {
+  if (!url) return null;
+  const filename = url.split("/").pop();
+  const parts = filename.split("-");
+  // Assuming a standard format where the actual name starts after some UUID/Timestamp parts
+  const withoutPrefix = parts.length > 2 ? parts.slice(2).join("-") : filename;
+  return withoutPrefix.replace(/_/g, " ");
+};
+
+/**
  * GET /api/user/profile/:id
  * Fetches combined User + Business Profile data.
- *
- * DB columns used:
- *  users             → id, full_name, email, role, location, phone_number, avatar_url
- *  business_profiles → company_name, size, industry, tin_number, permit_url,
- *                      website, headquarters, description, verification_status
  */
 const getProfile = async (req, res) => {
   try {
@@ -16,25 +24,25 @@ const getProfile = async (req, res) => {
 
     const result = await query(
       `SELECT
-         u.id,
-         u.full_name,
-         u.email,
-         u.role,
-         u.location,
-         u.phone_number,
-         u.avatar_url,
-         bp.company_name,
-         bp.size            AS company_size,
-         bp.industry,
-         bp.tin_number,
-         bp.permit_url,
-         bp.website,
-         bp.headquarters,
-         bp.description,
-         bp.verification_status
-       FROM users u
-       LEFT JOIN business_profiles bp ON u.id = bp.user_id
-       WHERE u.id = $1`,
+          u.id,
+          u.full_name,
+          u.email,
+          u.role,
+          u.location,
+          u.phone_number,
+          u.avatar_url,
+          bp.company_name,
+          bp.size            AS company_size,
+          bp.industry,
+          bp.tin_number,
+          bp.permit_url,
+          bp.website,
+          bp.headquarters,
+          bp.description,
+          bp.verification_status
+        FROM users u
+        LEFT JOIN business_profiles bp ON u.id = bp.user_id
+        WHERE u.id = $1`,
       [id]
     );
 
@@ -45,21 +53,22 @@ const getProfile = async (req, res) => {
     const row = result.rows[0];
 
     const data = {
-      full_name:    row.full_name,
-      email:        row.email,
-      role:         row.role,
-      location:     row.location,
+      id: row.id,
+      full_name: row.full_name,
+      email: row.email,
+      role: row.role,
+      location: row.location,
       phone_number: row.phone_number,
-      avatar_url:   row.avatar_url,
+      avatar_url: row.avatar_url,
       business: {
-        companyName:        row.company_name        || "",
-        companySize:        row.company_size        || "",
-        industry:           row.industry            || "",
-        tinNumber:          row.tin_number          || "",
-        permitUrl:          row.permit_url          || "",
-        website:            row.website             || "",
-        headquarters:       row.headquarters        || "",
-        description:        row.description         || "",
+        companyName: row.company_name || "",
+        companySize: row.company_size || "",
+        industry: row.industry || "",
+        tinNumber: row.tin_number || "",
+        permitUrl: row.permit_url || "",
+        website: row.website || "",
+        headquarters: row.headquarters || "",
+        description: row.description || "",
         verificationStatus: row.verification_status || "pending",
       },
     };
@@ -72,11 +81,17 @@ const getProfile = async (req, res) => {
 };
 
 /**
+ * GET /api/user/me
+ * Fetches profile for the currently logged-in user.
+ */
+const getMyProfile = async (req, res) => {
+  req.params.id = req.user.id;
+  return getProfile(req, res);
+};
+
+/**
  * PUT /api/user/profile/:id
  * Updates user info: full_name, email, phone_number, location.
- * email has a UNIQUE constraint in the DB — if the new email is already taken
- * by another account, Postgres throws error code 23505 and we return a clear
- * message to the frontend instead of a generic 500.
  */
 const updateProfile = async (req, res) => {
   try {
@@ -101,13 +116,13 @@ const updateProfile = async (req, res) => {
 
     return sendSuccess(res, result.rows[0], "Profile updated");
   } catch (err) {
-    // Postgres unique-constraint violation (email already taken)
-    if (err.code === "23505" && err.constraint === "users_email_key") {
-      return sendError(res, "This email address is already in use by another account.", 409);
-    }
-    // Postgres unique-constraint violation (phone already taken)
-    if (err.code === "23505" && err.constraint === "users_phone_number_key") {
-      return sendError(res, "This phone number is already in use by another account.", 409);
+    if (err.code === "23505") {
+      if (err.constraint === "users_email_key") {
+        return sendError(res, "This email address is already in use.", 409);
+      }
+      if (err.constraint === "users_phone_number_key") {
+        return sendError(res, "This phone number is already in use.", 409);
+      }
     }
     console.error("updateProfile error:", err);
     return sendError(res, "Failed to update profile");
@@ -116,11 +131,7 @@ const updateProfile = async (req, res) => {
 
 /**
  * PUT /api/user/business/:id
- * Upserts the business_profiles row for this user.
- * Accepts: companyName, companySize, industry, tinNumber,
- *          website, headquarters, description
- * NOTE: permit_url is handled by POST /api/user/permit/:id (file upload).
- *       verification_status is admin-managed only.
+ * Upserts business profile details.
  */
 const updateBusiness = async (req, res) => {
   try {
@@ -163,14 +174,14 @@ const updateBusiness = async (req, res) => {
 
     const row = result.rows[0];
     return sendSuccess(res, {
-      companyName:        row.company_name,
-      companySize:        row.company_size,
-      industry:           row.industry,
-      tinNumber:          row.tin_number,
-      permitUrl:          row.permit_url,
-      website:            row.website,
-      headquarters:       row.headquarters,
-      description:        row.description,
+      companyName: row.company_name,
+      companySize: row.company_size,
+      industry: row.industry,
+      tinNumber: row.tin_number,
+      permitUrl: row.permit_url,
+      website: row.website,
+      headquarters: row.headquarters,
+      description: row.description,
       verificationStatus: row.verification_status,
     }, "Business profile saved");
   } catch (err) {
@@ -181,13 +192,11 @@ const updateBusiness = async (req, res) => {
 
 /**
  * POST /api/user/avatar
- * Uploads avatar image and updates users.avatar_url.
  */
 const updateAvatar = async (req, res) => {
   try {
-    if (!req.file) {
-      return sendError(res, "No file uploaded", 400);
-    }
+    if (!req.file) return sendError(res, "No file uploaded", 400);
+
     const avatar_url = `/uploads/avatars/${req.file.filename}`;
     const result = await query(
       "UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2 RETURNING avatar_url",
@@ -202,14 +211,11 @@ const updateAvatar = async (req, res) => {
 
 /**
  * POST /api/user/permit/:id
- * Uploads a business permit PDF and saves the path to business_profiles.permit_url.
- * The DB has ONE permit_url column (not separate DTI/SEC/Mayor fields).
  */
 const updatePermit = async (req, res) => {
   try {
-    if (!req.file) {
-      return sendError(res, "No file uploaded", 400);
-    }
+    if (!req.file) return sendError(res, "No file uploaded", 400);
+
     const { id } = req.params;
     const permit_url = `/uploads/permits/${req.file.filename}`;
 
@@ -232,7 +238,6 @@ const updatePermit = async (req, res) => {
 
 /**
  * GET /api/user/documents
- * Fetches resume and cover letter URLs for the logged-in user.
  */
 const getDocuments = async (req, res) => {
   try {
@@ -241,14 +246,6 @@ const getDocuments = async (req, res) => {
       [req.user.id]
     );
     const row = result.rows[0] ?? {};
-
-    const toDisplayName = (url) => {
-      if (!url) return null;
-      const filename = url.split("/").pop();
-      const parts = filename.split("-");
-      const withoutPrefix = parts.slice(6).join("-");
-      return withoutPrefix.replace(/_/g, " ");
-    };
 
     return sendSuccess(res, {
       resume_url:       row.resume_url       ?? null,
@@ -264,38 +261,36 @@ const getDocuments = async (req, res) => {
 
 /**
  * POST /api/user/documents
- * Uploads resume and/or cover letter PDFs.
  */
 const updateDocuments = async (req, res) => {
   try {
     const { document_type } = req.body;
-    console.log("files received:", JSON.stringify(Object.keys(req.files || {})));
 
     if (document_type === "resume" && req.files?.resume) {
-      const resume_url    = `/uploads/documents/${req.files.resume[0].filename}`;
+      const resume_url = `/uploads/documents/${req.files.resume[0].filename}`;
       const original_name = req.files.resume[0].originalname;
 
       await query(
         `INSERT INTO applicant_profiles (id, user_id, resume_url, updated_at)
          VALUES (gen_random_uuid(), $1, $2, NOW())
-         ON CONFLICT (user_id)
-         DO UPDATE SET resume_url = EXCLUDED.resume_url,
-                       updated_at = NOW()`,
+         ON CONFLICT (user_id) DO UPDATE SET 
+           resume_url = EXCLUDED.resume_url,
+           updated_at = NOW()`,
         [req.user.id, resume_url]
       );
       return sendSuccess(res, { resume_url, original_name }, "Resume uploaded");
     }
 
     if (document_type === "cover" && req.files?.cover_letter) {
-      const cover_url     = `/uploads/documents/${req.files.cover_letter[0].filename}`;
+      const cover_url = `/uploads/documents/${req.files.cover_letter[0].filename}`;
       const original_name = req.files.cover_letter[0].originalname;
 
       await query(
         `INSERT INTO applicant_profiles (id, user_id, cover_letter_url, updated_at)
          VALUES (gen_random_uuid(), $1, $2, NOW())
-         ON CONFLICT (user_id)
-         DO UPDATE SET cover_letter_url = EXCLUDED.cover_letter_url,
-                       updated_at = NOW()`,
+         ON CONFLICT (user_id) DO UPDATE SET 
+           cover_letter_url = EXCLUDED.cover_letter_url,
+           updated_at = NOW()`,
         [req.user.id, cover_url]
       );
       return sendSuccess(res, { cover_url, original_name }, "Cover letter uploaded");
@@ -303,17 +298,18 @@ const updateDocuments = async (req, res) => {
 
     return sendError(res, "No file received", 400);
   } catch (err) {
-    console.error("updateDocuments FULL error:", err.message, err.stack);
+    console.error("updateDocuments error:", err.message);
     return sendError(res, err.message || "Failed to upload document");
   }
 };
 
 module.exports = {
   getProfile,
+  getMyProfile,
   updateProfile,
   updateBusiness,
   updateAvatar,
   updatePermit,
-  updateDocuments,
   getDocuments,
+  updateDocuments,
 };

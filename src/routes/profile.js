@@ -6,6 +6,7 @@ const multer  = require("multer");
 const { authenticate } = require("../middleware/auth");
 const {
   getProfile,
+  getMyProfile,
   updateProfile,
   updateBusiness,
   updateAvatar,
@@ -34,7 +35,7 @@ const avatarUpload = multer({
   },
 });
 
-// ── Multer: Documents (resume, cover letter) ──────────────────────────────────
+// ── Multer: Documents ─────────────────────────────────────────────────────────
 const documentUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
@@ -60,7 +61,7 @@ const documentUpload = multer({
   },
 });
 
-// ── Multer: Business Permit PDF ───────────────────────────────────────────────
+// ── Multer: Business Permit ───────────────────────────────────────────────────
 const permitUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
@@ -81,22 +82,28 @@ const permitUpload = multer({
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-// GET  /api/user/profile/:id  → fetch user + business profile
+// GET  /api/user/profile        → fetch profile for logged-in user (token-based)
+router.get("/profile",    authenticate, getMyProfile);
+
+// GET  /api/user/profile/:id    → fetch profile by explicit user ID
 router.get("/profile/:id", getProfile);
 
-// PUT  /api/user/profile/:id  → update full_name, email, phone_number, location
+// PUT  /api/user/profile        → update own profile (token-based)
+router.put("/profile",    authenticate, updateProfile);
+
+// PUT  /api/user/profile/:id    → update profile by explicit user ID
 router.put("/profile/:id", authenticate, updateProfile);
 
-// PUT  /api/user/business/:id → upsert business_profiles row
+// PUT  /api/user/business/:id   → upsert business_profiles row
 router.put("/business/:id", authenticate, updateBusiness);
 
-// POST /api/user/avatar       → upload avatar image
+// POST /api/user/avatar         → upload avatar image
 router.post("/avatar", authenticate, avatarUpload.single("avatar"), updateAvatar);
 
-// POST /api/user/permit/:id   → upload business permit PDF
+// POST /api/user/permit/:id     → upload business permit PDF
 router.post("/permit/:id", authenticate, permitUpload.single("permit"), updatePermit);
 
-// POST /api/user/documents    → upload resume and/or cover letter
+// POST /api/user/documents      → upload resume and/or cover letter
 router.post(
   "/documents",
   authenticate,
@@ -107,7 +114,7 @@ router.post(
   updateDocuments
 );
 
-// GET  /api/user/documents    → fetch document URLs for the logged-in user
+// GET  /api/user/documents      → fetch document URLs for the logged-in user
 router.get("/documents", authenticate, getDocuments);
 
 module.exports = router;
