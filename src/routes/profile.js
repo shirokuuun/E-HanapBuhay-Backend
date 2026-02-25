@@ -77,4 +77,21 @@ router.post(
 );
 router.get("/documents", authenticate, getDocuments);
 
+// ── Routes ───────────────────────────────────────────────────────────────────
+
+// GET  /api/user/profile/:id  → fetch user + business profile
+router.get('/profile/:id', getProfile);
+
+// PUT  /api/user/profile/:id  → update full_name / location / phone_number
+router.put('/profile/:id', authenticate, updateProfile);
+
+// PUT  /api/user/business/:id → upsert business_profiles row
+router.put('/business/:id', authenticate, updateBusiness);
+
+// POST /api/user/avatar       → upload avatar image (uses req.user.id from JWT)
+router.post('/avatar', authenticate, avatarUpload.single('avatar'), updateAvatar);
+
+// POST /api/user/permit/:id   → upload business permit PDF
+router.post('/permit/:id', authenticate, permitUpload.single('permit'), updatePermit);
+
 module.exports = router;

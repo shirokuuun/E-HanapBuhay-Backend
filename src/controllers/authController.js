@@ -10,10 +10,7 @@ const register = async (req, res) => {
       req.body;
     const phoneValue = phone_number || phone || null;
 
-    // Check duplicate email
-    const existing = await query("SELECT id FROM users WHERE email = $1", [
-      email,
-    ]);
+    const existing = await query("SELECT id FROM users WHERE email = $1", [email]);
     if (existing.rows.length > 0) {
       return sendError(res, "Email already registered", 409);
     }
@@ -30,12 +27,7 @@ const register = async (req, res) => {
     const user = result.rows[0];
     const token = generateToken(user);
 
-    return sendSuccess(
-      res,
-      { token, user },
-      "Account created successfully",
-      201,
-    );
+    return sendSuccess(res, { token, user }, "Account created successfully", 201);
   } catch (err) {
     console.error("register error:", err);
     return sendError(res, "Registration failed");
@@ -46,10 +38,9 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
     const result = await query(
       "SELECT id, full_name, email, password_hash, role, is_active FROM users WHERE email = $1",
-      [email],
+      [email]
     );
 
     if (result.rows.length === 0) {
@@ -57,11 +48,9 @@ const login = async (req, res) => {
     }
 
     const user = result.rows[0];
-
     if (!user.is_active) {
       return sendError(res, "Account is deactivated", 403);
     }
-
     if (!user.password_hash) {
       return sendError(res, "Please sign in with Google", 400);
     }
@@ -73,7 +62,6 @@ const login = async (req, res) => {
 
     const token = generateToken(user);
     const { password_hash, ...safeUser } = user;
-
     return sendSuccess(res, { token, user: safeUser }, "Login successful");
   } catch (err) {
     console.error("login error:", err);
@@ -85,11 +73,7 @@ const login = async (req, res) => {
 const googleAuth = async (req, res) => {
   try {
     const { google_id, email, full_name, avatar_url } = req.body;
-
-    let result = await query(
-      "SELECT * FROM users WHERE google_id = $1 OR email = $2",
-      [google_id, email],
-    );
+    let result = await query("SELECT * FROM users WHERE google_id = $1 OR email = $2", [google_id, email]);
     let user;
 
     if (result.rows.length > 0) {
@@ -97,7 +81,7 @@ const googleAuth = async (req, res) => {
         `UPDATE users SET google_id = $1, full_name = $2, avatar_url = $3,
          auth_provider = 'google', updated_at = NOW()
          WHERE id = $4 RETURNING id, full_name, email, role`,
-        [google_id, full_name, avatar_url, result.rows[0].id],
+        [google_id, full_name, avatar_url, result.rows[0].id]
       );
       user = update.rows[0];
     } else {
@@ -105,7 +89,7 @@ const googleAuth = async (req, res) => {
         `INSERT INTO users (full_name, email, google_id, avatar_url, auth_provider)
          VALUES ($1, $2, $3, $4, 'google')
          RETURNING id, full_name, email, role`,
-        [full_name, email, google_id, avatar_url],
+        [full_name, email, google_id, avatar_url]
       );
       user = insert.rows[0];
     }
@@ -124,7 +108,7 @@ const getMe = async (req, res) => {
     const result = await query(
       `SELECT id, full_name, email, role, location, phone_number, avatar_url, created_at
        FROM users WHERE id = $1`,
-      [req.user.id],
+      [req.user.id]
     );
     return sendSuccess(res, result.rows[0]);
   } catch (err) {
@@ -132,4 +116,26 @@ const getMe = async (req, res) => {
   }
 };
 
-module.exports = { register, login, googleAuth, getMe };
+// POST /api/auth/reset-password-direct
+const resetPasswordDirect = async (req, res) => {
+  const { email, newPassword } = req.body;
+  try {
+    // Fixed: Using query helper instead of pool.query
+    const user = await query("SELECT id FROM users WHERE email = $1", [email]);
+    if (user.rows.length === 0) {
+      return sendError(res, "Email not found", 404);
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+
+    // Fixed: Using query helper instead of pool.query
+    await query("UPDATE users SET password_hash = $1 WHERE email = $2", [hashed, email]);
+
+    return sendSuccess(res, null, "Password updated successfully");
+  } catch (err) {
+    console.error("Reset password error:", err);
+    return sendError(res, "Failed to update password");
+  }
+};
+
+module.exports = { register, login, googleAuth, getMe, resetPasswordDirect };
