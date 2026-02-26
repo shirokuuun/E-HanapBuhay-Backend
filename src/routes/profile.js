@@ -85,8 +85,8 @@ const permitUpload = multer({
 // GET  /api/user/profile        → fetch profile for logged-in user (token-based)
 router.get("/profile",    authenticate, getMyProfile);
 
-// GET  /api/user/profile/:id    → fetch profile by explicit user ID
-router.get("/profile/:id", getProfile);
+// GET  /api/user/profile/:id    → fetch profile by explicit user ID (auth required)
+router.get("/profile/:id", authenticate, getProfile);
 
 // PUT  /api/user/profile        → update own profile (token-based)
 router.put("/profile",    authenticate, updateProfile);

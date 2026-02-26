@@ -14,7 +14,8 @@ const authenticate = async (req, res, next) => {
 
     // Check user still exists and is active
     const result = await query(
-      'SELECT id, full_name, email, role, is_active FROM users WHERE id = $1',
+      // avatar_url included so req.user is complete for all authenticated routes
+      'SELECT id, full_name, email, role, role_id, is_active, avatar_url FROM users WHERE id = $1',
       [decoded.id]
     );
 
@@ -41,7 +42,7 @@ const optionalAuth = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const result = await query(
-      'SELECT id, full_name, email, role FROM users WHERE id = $1',
+      'SELECT id, full_name, email, role, role_id FROM users WHERE id = $1',
       [decoded.id]
     );
     if (result.rows.length > 0) req.user = result.rows[0];
@@ -49,4 +50,21 @@ const optionalAuth = async (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, optionalAuth };
+const requireRole = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    const hasRoleId = allowedRoles.some(r => typeof r === 'number' && req.user.role_id === r);
+    const hasRoleName = allowedRoles.some(r => typeof r === 'string' && req.user.role === r);
+
+    if (!hasRoleId && !hasRoleName) {
+      return res.status(403).json({ success: false, message: 'Access denied. Insufficient permissions.' });
+    }
+
+    next();
+  };
+};
+
+module.exports = { authenticate, optionalAuth, requireRole };

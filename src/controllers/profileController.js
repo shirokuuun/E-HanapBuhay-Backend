@@ -90,12 +90,15 @@ const getMyProfile = async (req, res) => {
 };
 
 /**
- * PUT /api/user/profile/:id
- * Updates user info: full_name, email, phone_number, location.
+ * PUT /api/user/profile        → update own profile (uses JWT user id)
+ * PUT /api/user/profile/:id   → update profile by explicit id
  */
 const updateProfile = async (req, res) => {
   try {
-    const { id } = req.params;
+    // Support both token-based (no :id) and explicit :id routes
+    const id = req.params.id ?? req.user?.id;
+    if (!id) return sendError(res, "User ID not found", 400);
+
     const { full_name, email, phone_number, location } = req.body;
 
     const result = await query(
@@ -130,12 +133,13 @@ const updateProfile = async (req, res) => {
 };
 
 /**
- * PUT /api/user/business/:id
- * Upserts business profile details.
+ * PUT /api/user/business/:id  → upsert business_profiles row
+ * Falls back to JWT user id if no :id param provided.
  */
 const updateBusiness = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id ?? req.user?.id;
+    if (!id) return sendError(res, "User ID not found", 400);
     const {
       companyName,
       companySize,
@@ -272,7 +276,7 @@ const updateDocuments = async (req, res) => {
 
       await query(
         `INSERT INTO applicant_profiles (id, user_id, resume_url, updated_at)
-         VALUES (gen_random_uuid(), $1, $2, NOW())
+         VALUES (uuid_generate_v4(), $1, $2, NOW())
          ON CONFLICT (user_id) DO UPDATE SET 
            resume_url = EXCLUDED.resume_url,
            updated_at = NOW()`,
@@ -287,7 +291,7 @@ const updateDocuments = async (req, res) => {
 
       await query(
         `INSERT INTO applicant_profiles (id, user_id, cover_letter_url, updated_at)
-         VALUES (gen_random_uuid(), $1, $2, NOW())
+         VALUES (uuid_generate_v4(), $1, $2, NOW())
          ON CONFLICT (user_id) DO UPDATE SET 
            cover_letter_url = EXCLUDED.cover_letter_url,
            updated_at = NOW()`,
